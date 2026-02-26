@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bill Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- Supabase SDK removed; using REST API directly to avoid key-format validation issues -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d0d;
+      --surface:   #1a1a1a;
+      --border:    #2a2a2a;
+      --text:      #f0f0f0;
+      --muted:     #666;
+      --accent:    #4d9fff;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --radius:    16px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Header ── */
+    header {
+      width: 100%;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .logo-icon svg { width: 18px; height: 18px; }
+    header h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+    header span { font-size: 13px; color: var(--muted); margin-left: auto; }
+
+    /* ── Main container ── */
+    main {
+      width: 100%;
+      max-width: 480px;
+      padding: 24px 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── Screen visibility ── */
+    .screen { display: none; flex-direction: column; gap: 20px; }
+    .screen.active { display: flex; }
+
+    /* ── Camera screen ── */
+    .camera-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #111;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    #video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    /* scanning overlay frame */
+    .scan-frame {
+      position: absolute;
+      inset: 16px;
+      border: 2px solid var(--accent);
+      border-radius: 10px;
+      pointer-events: none;
+    }
+    .scan-frame::before, .scan-frame::after {
+      content: '';
+      position: absolute;
+      width: 24px; height: 24px;
+      border-color: var(--accent);
+      border-style: solid;
+    }
+    .scan-frame::before { top: -2px; left: -2px; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+    .scan-frame::after  { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+    .scan-line {
+      position: absolute;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: scanLine 2s ease-in-out infinite;
+    }
+    @keyframes scanLine {
+      0%   { top: 16px; opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { top: calc(100% - 16px); opacity: 0; }
+    }
+
+    .camera-label {
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    /* Hidden canvas for capture */
+    #canvas { display: none; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 16px 24px;
+      border-radius: 999px;
+      border: none;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .15s, opacity .15s;
+      text-decoration: none;
+      width: 100%;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { opacity: .9; }
+    .btn-approve { background: var(--green); color: #fff; }
+    .btn-approve:hover { opacity: .9; }
+    .btn-retake  { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-retake:hover { background: #222; }
+    .btn-row { display: flex; gap: 12px; }
+    .btn-row .btn { flex: 1; }
+
+    /* Upload fallback */
+    .divider {
+      display: flex; align-items: center; gap: 12px;
+      font-size: 12px; color: var(--muted);
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1;
+      height: 1px; background: var(--border);
+    }
+    .upload-label {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 14px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      font-size: 14px;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .upload-label:hover { border-color: var(--accent); color: var(--accent); }
+    #fileInput { display: none; }
+
+    /* ── Processing screen ── */
+    .processing-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      padding: 40px 0;
+    }
+    .spinner {
+      width: 56px; height: 56px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .processing-wrap h2 { font-size: 18px; font-weight: 700; }
+    .processing-wrap p  { font-size: 14px; color: var(--muted); text-align: center; }
+    #progressText { font-size: 12px; color: var(--accent); margin-top: 4px; }
+
+    /* preview of captured image */
+    #previewImg {
+      width: 100%;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      object-fit: contain;
+      max-height: 240px;
+    }
+
+    /* ── Result screen ── */
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      text-align: center;
+    }
+    .result-label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--muted);
+    }
+    .result-amount {
+      font-size: clamp(36px, 10vw, 52px);
+      font-weight: 900;
+      letter-spacing: -2px;
+      color: var(--text);
+      line-height: 1;
+      margin: 8px 0;
+    }
+    .result-found {
+      font-size: 13px;
+      color: var(--green);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .result-found::before {
+      content: '';
+      display: block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+    .result-preview {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      object-fit: contain;
+      max-height: 160px;
+    }
+
+    /* not-found state */
+    .not-found-card {
+      background: #1a0f0f;
+      border: 1px solid #3d1a1a;
+      border-radius: var(--radius);
+      padding: 28px 24px;
+      text-align: center;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+    }
+    .not-found-card .icon { font-size: 32px; }
+    .not-found-card h2 { font-size: 17px; font-weight: 700; }
+    .not-found-card p  { font-size: 13px; color: var(--muted); }
+
+    /* ── Approved screen ── */
+    .approved-wrap {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 16px;
+      padding: 48px 0;
+      text-align: center;
+    }
+    .check-circle {
+      width: 72px; height: 72px;
+      background: var(--green);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      animation: popIn .3s ease;
+    }
+    @keyframes popIn {
+      from { transform: scale(.6); opacity: 0; }
+      to   { transform: scale(1);  opacity: 1; }
+    }
+    .approved-wrap h2 { font-size: 22px; font-weight: 800; }
+    .approved-amount {
+      font-size: 38px; font-weight: 900;
+      letter-spacing: -1.5px;
+      color: var(--green);
+    }
+    .approved-wrap p { font-size: 14px; color: var(--muted); }
+
+    /* ── No-camera card ── */
+    .no-camera-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      text-align: center;
+    }
+    .no-camera-card .icon { font-size: 36px; }
+    .no-camera-card p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+    /* label styled as a button */
+    label.btn { cursor: pointer; }
+
+    /* ── Tip ── */
+    .tip {
+      background: #0f1a2d;
+      border: 1px solid #1a3260;
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #5a8fd4;
+      line-height: 1.5;
+    }
+    .tip strong { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="3" y1="9" x2="21" y2="9"/>
+        <line x1="9" y1="21" x2="9" y2="9"/>
+      </svg>
+    </div>
+    <h1>Bill Scanner</h1>
+    <span>OCR · Net Bill Amount</span>
+  </header>
+
+  <main>
+
+    <!-- ── SCREEN 1: Camera / Upload ── -->
+    <div class="screen active" id="screenCamera">
+
+      <!-- Live camera (shown when camera permission is granted) -->
+      <div id="liveCameraSection">
+        <div class="camera-wrap">
+          <video id="video" autoplay playsinline muted></video>
+          <div class="scan-frame">
+            <div class="scan-line"></div>
+          </div>
+        </div>
+        <p class="camera-label">Point the camera at the bill · align "Net bill amount" in the frame</p>
+        <button class="btn btn-primary" id="captureBtn" onclick="capture()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M3 9V7a2 2 0 0 1 2-2h1l2-2h8l2 2h1a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1"/></svg>
+          Capture
+        </button>
+        <div class="divider">or</div>
+      </div>
+
+      <!-- Mobile / no-camera fallback (shown when camera is unavailable) -->
+      <div id="noCameraCard" class="no-camera-card" style="display:none">
+        <div class="icon">📷</div>
+        <p>Camera isn't available here.<br>Use the buttons below to take a photo or pick one from your gallery.</p>
+      </div>
+
+      <!-- Take Photo (uses OS camera via file input — works on mobile over HTTP) -->
+      <label class="btn btn-primary" for="takePhotoInput" id="takePhotoBtn" style="display:none">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M3 9V7a2 2 0 0 1 2-2h1l2-2h8l2 2h1a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1"/></svg>
+        Take Photo
+      </label>
+      <input type="file" id="takePhotoInput" accept="image/*" capture="environment" onchange="handleFile(event)" style="display:none" />
+
+      <div class="divider" id="galleryDivider" style="display:none">or</div>
+
+      <!-- Gallery / file upload (always visible) -->
+      <label class="upload-label" for="fileInput">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Choose from Gallery
+      </label>
+      <input type="file" id="fileInput" accept="image/*" onchange="handleFile(event)" />
+
+      <div class="tip">
+        <strong>Tip:</strong> Make sure the bill is well-lit and the text is clearly visible. The app will look for the line that says <strong>"Net bill amount"</strong>.
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-retake" onclick="showManualEntry()">+ Add Amount</button>
+        <button class="btn btn-retake" onclick="showTransactions()">Show all transactions</button>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 2: Processing ── -->
+    <div class="screen" id="screenProcessing">
+      <img id="previewImg" src="" alt="Captured bill" />
+      <div class="processing-wrap">
+        <div class="spinner"></div>
+        <h2>Reading your bill…</h2>
+        <p>Running OCR to extract the net bill amount</p>
+        <div id="progressText">Initialising…</div>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 3: Result ── -->
+    <div class="screen" id="screenResult">
+      <img id="resultImg" src="" alt="Scanned bill" class="result-preview" />
+
+      <!-- Found -->
+      <div class="result-card" id="foundCard">
+        <div class="result-label">Net Bill Amount</div>
+        <div class="result-amount" id="amountDisplay">—</div>
+        <div class="result-found">Extracted from bill</div>
+      </div>
+
+      <!-- Not found -->
+      <div class="not-found-card" id="notFoundCard" style="display:none">
+        <div class="icon">🔍</div>
+        <h2>Amount not found</h2>
+        <p>Could not locate "Net bill amount" in the scanned text. Try retaking with better lighting.</p>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-retake" onclick="retake()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4"/></svg>
+          Retake
+        </button>
+        <button class="btn btn-approve" id="approveBtn" onclick="approve()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Approve
+        </button>
+      </div>
+    </div>
+
+    <!-- ── SCREEN 4: Approved ── -->
+    <div class="screen" id="screenApproved">
+      <div class="approved-wrap">
+        <div class="check-circle">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <h2>Amount Approved</h2>
+        <div class="approved-amount" id="approvedAmount">—</div>
+        <p>The net bill amount has been confirmed.</p>
+        <p id="saveStatus" style="font-size:12px; color:var(--muted); margin-top:4px;">Saving to database…</p>
+      </div>
+      <button class="btn btn-primary" onclick="restart()">Scan another bill</button>
+      <button class="btn btn-retake" onclick="showTransactions()" style="margin-top:10px;">Show all transactions</button>
+    </div>
+
+  </main>
+
+  <!-- ── Manual Entry Modal ── -->
+  <div id="manualModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:360px;display:flex;flex-direction:column;gap:16px;">
+      <h3 style="font-size:17px;font-weight:800;">Add Amount Manually</h3>
+      <input id="manualInput" type="number" inputmode="decimal" placeholder="e.g. 850.00"
+        style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:20px;font-weight:700;color:var(--text);width:100%;outline:none;" />
+      <div class="btn-row">
+        <button class="btn btn-retake" onclick="closeManualEntry()">Cancel</button>
+        <button class="btn btn-approve" onclick="saveManualEntry()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SCREEN 5: Transactions ── -->
+  <div class="screen" id="screenTransactions" style="padding:0;">
+    <div style="width:100%;max-width:480px;padding:0 20px 24px;display:flex;flex-direction:column;gap:12px;">
+      <div id="txSummary"></div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-retake" style="padding:8px 16px;font-size:13px;" id="txBackBtn" onclick="showScreen(txPrevScreen)">&#8592; Back</button>
+        <h2 style="font-size:18px;font-weight:800;">All Transactions</h2>
+      </div>
+      <div id="txList" style="display:flex;flex-direction:column;gap:10px;">
+        <p style="color:var(--muted);font-size:14px;">Loading…</p>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <script>
+    // ── Supabase (direct REST API — no SDK, no key-format restriction) ─────────
+    const SUPABASE_URL = 'https://dcuaaioattrrgeauoeum.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_ZH8Zas2eUQHpSR3Ww5aHiQ_-_WOSQZF';
+
+    async function insertBill(record) {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/bills`, {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey':       SUPABASE_KEY,
+          'Prefer':       'return=minimal'
+        },
+        body: JSON.stringify(record)
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`HTTP ${res.status}: ${txt}`);
+      }
+    }
+
+    // ── State ──────────────────────────────────────────────────────────────────
+    let stream = null;
+    let txPrevScreen = 'screenCamera';
+    let capturedDataUrl = null;
+    let extractedAmount = null;
+
+    // ── Show/hide screens ─────────────────────────────────────────────────────
+    function showScreen(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+
+    // ── Start camera ──────────────────────────────────────────────────────────
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
+        });
+        document.getElementById('video').srcObject = stream;
+      } catch (err) {
+        // Camera not available — switch to mobile upload UI
+        document.getElementById('liveCameraSection').style.display = 'none';
+        document.getElementById('noCameraCard').style.display      = '';
+        document.getElementById('takePhotoBtn').style.display      = '';
+        document.getElementById('takePhotoInput').style.display    = 'none'; // input stays hidden; label acts as trigger
+        document.getElementById('galleryDivider').style.display    = '';
+        console.warn('Camera unavailable:', err.message);
+      }
+    }
+
+    function stopCamera() {
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    }
+
+    // ── Capture frame from video ──────────────────────────────────────────────
+    function capture() {
+      const video  = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      canvas.width  = video.videoWidth  || 640;
+      canvas.height = video.videoHeight || 480;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      capturedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      stopCamera();
+      runOCR(capturedDataUrl);
+    }
+
+    // ── Handle uploaded file ──────────────────────────────────────────────────
+    function handleFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // Reset input so the same file can be selected again next time
+      e.target.value = '';
+
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file.');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = ev => {
+        capturedDataUrl = ev.target.result;
+        stopCamera();
+        runOCR(capturedDataUrl);
+      };
+      reader.onerror = () => {
+        alert('Failed to read the file. Please try a different image.');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // ── Image preprocessing ───────────────────────────────────────────────────
+    // Upscale → grayscale → contrast boost → sharpen
+    // Returns a new data-URL ready for Tesseract
+    function preprocessImage(dataUrl) {
+      return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          const SCALE = 2;
+          const w = img.width  * SCALE;
+          const h = img.height * SCALE;
+
+          const cvs = document.createElement('canvas');
+          cvs.width  = w;
+          cvs.height = h;
+          const ctx = cvs.getContext('2d');
+
+          // 1. Draw upscaled (smooth interpolation)
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, w, h);
+
+          // 2. Grayscale + contrast
+          const id = ctx.getImageData(0, 0, w, h);
+          const d  = id.data;
+          const contrast = 60;
+          const cf = (259 * (contrast + 255)) / (255 * (259 - contrast));
+          for (let i = 0; i < d.length; i += 4) {
+            let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; // grayscale
+            g = Math.min(255, Math.max(0, cf * (g - 128) + 128));         // contrast
+            d[i] = d[i + 1] = d[i + 2] = g;
+          }
+          ctx.putImageData(id, 0, 0);
+
+          // 3. Sharpen via 3×3 convolution kernel
+          const sharpened = applyConvolution(ctx, w, h, [
+             0, -1,  0,
+            -1,  5, -1,
+             0, -1,  0
+          ]);
+          ctx.putImageData(sharpened, 0, 0);
+
+          resolve(cvs.toDataURL('image/png'));
+        };
+        img.src = dataUrl;
+      });
+    }
+
+    function applyConvolution(ctx, w, h, kernel) {
+      const src = ctx.getImageData(0, 0, w, h);
+      const dst = ctx.createImageData(w, h);
+      const s = src.data, d = dst.data;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let v = 0;
+          for (let ky = 0; ky < 3; ky++) {
+            for (let kx = 0; kx < 3; kx++) {
+              const sy = Math.min(h - 1, Math.max(0, y + ky - 1));
+              const sx = Math.min(w - 1, Math.max(0, x + kx - 1));
+              v += s[(sy * w + sx) * 4] * kernel[ky * 3 + kx];
+            }
+          }
+          const i = (y * w + x) * 4;
+          const c = Math.min(255, Math.max(0, v));
+          d[i] = d[i + 1] = d[i + 2] = c;
+          d[i + 3] = 255;
+        }
+      }
+      return dst;
+    }
+
+    // ── OCR ───────────────────────────────────────────────────────────────────
+    async function runOCR(imageDataUrl) {
+      document.getElementById('previewImg').src = imageDataUrl;
+      showScreen('screenProcessing');
+
+      const setStatus = t => document.getElementById('progressText').textContent = t;
+
+      try {
+        // Pass 1: enhanced (upscaled + sharpened) image
+        setStatus('Enhancing image…');
+        const enhanced = await preprocessImage(imageDataUrl);
+
+        setStatus('Recognising text (pass 1)…');
+        const result1 = await Tesseract.recognize(enhanced, 'eng', {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              const pct = Math.round((m.progress || 0) * 100);
+              setStatus(`Recognising text (pass 1)… ${pct}%`);
+            }
+          }
+        });
+        console.log('Pass 1 OCR:\n', result1.data.text);
+        extractedAmount = parseAmount(result1.data.text);
+
+        // Pass 2 fallback: raw original image with looser Tesseract settings
+        if (!extractedAmount) {
+          setStatus('Retrying on original image (pass 2)…');
+          const result2 = await Tesseract.recognize(imageDataUrl, 'eng', {
+            logger: m => {
+              if (m.status === 'recognizing text') {
+                const pct = Math.round((m.progress || 0) * 100);
+                setStatus(`Recognising text (pass 2)… ${pct}%`);
+              }
+            }
+          });
+          console.log('Pass 2 OCR:\n', result2.data.text);
+          extractedAmount = parseAmount(result2.data.text);
+        }
+
+        showResult(imageDataUrl, extractedAmount);
+
+      } catch (err) {
+        console.error('OCR error:', err);
+        showResult(imageDataUrl, null);
+      }
+    }
+
+    // ── Parse "Net bill amount" from OCR text ─────────────────────────────────
+    function parseAmount(text) {
+      // Fix common OCR misreads before parsing
+      const fixed = text
+        .replace(/rn/g, 'm')          // "arnount" → "amount"
+        .replace(/\bO\b/g, '0')       // standalone letter-O → digit 0
+        .replace(/[|l](?=\d)/g, '1')  // l or | before digit → 1
+        .replace(/[|l](?=,)/g, '1');  // l or | before comma → 1
+
+      const lines = fixed.split('\n').map(l => l.trim()).filter(Boolean);
+
+      // Amount pattern: optional currency symbol, optional spaces, digits
+      // Handles: "800", "$ 800", "₹1,234.56", "Rs. 500"
+      const AMT_RE = /([₹$€£¥]|Rs\.?)?\s*(\d[\d,.\s]{0,20}\d|\d)/i;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Match label anywhere on the line, then lazily find the amount after it
+        // Handles: "Net bill amount 800", "net bill amount .. $ 800", "Net bill amount: 1,234.56"
+        const sameLineMatch = line.match(
+          /net\s*bill\s*am[o0]unt.*?([₹$€£¥]|Rs\.?)?\s*(\d[\d,.\s]{0,15}\d|\d)\s*$/i
+        );
+        if (sameLineMatch) {
+          const sym = (sameLineMatch[1] || '').trim();
+          const num = sameLineMatch[2].replace(/\s+/g, '');
+          return sym ? sym + num : num;
+        }
+
+        // Label on its own line — check next 1-3 lines for the amount
+        if (/net\s*bill\s*am[o0]unt/i.test(line)) {
+          for (let j = i + 1; j <= i + 3 && j < lines.length; j++) {
+            const nxt = lines[j];
+            // Allow leading noise like ".." before the amount
+            const nxtMatch = nxt.match(/^[.\s]*([₹$€£¥]|Rs\.?)?\s*(\d[\d,.\s]{0,15}\d|\d)\s*$/i);
+            if (nxtMatch) {
+              const sym = (nxtMatch[1] || '').trim();
+              const num = nxtMatch[2].replace(/\s+/g, '');
+              return sym ? sym + num : num;
+            }
+          }
+        }
+      }
+
+      return null;
+    }
+
+    // ── Show result screen ────────────────────────────────────────────────────
+    function formatAmount(val) {
+      const n = parseFloat(String(val).replace(/[^0-9.]/g, ''));
+      return isNaN(n) ? val : n.toFixed(2);
+    }
+
+    function showResult(imageDataUrl, amount) {
+      document.getElementById('resultImg').src = imageDataUrl;
+
+      if (amount) {
+        extractedAmount = formatAmount(amount);
+        document.getElementById('foundCard').style.display    = '';
+        document.getElementById('notFoundCard').style.display = 'none';
+        document.getElementById('amountDisplay').textContent  = extractedAmount;
+        document.getElementById('approveBtn').disabled        = false;
+      } else {
+        document.getElementById('foundCard').style.display    = 'none';
+        document.getElementById('notFoundCard').style.display = '';
+        document.getElementById('approveBtn').disabled        = true;
+      }
+
+      showScreen('screenResult');
+    }
+
+    // ── Actions ───────────────────────────────────────────────────────────────
+    function retake() {
+      capturedDataUrl  = null;
+      extractedAmount  = null;
+      document.getElementById('fileInput').value      = '';
+      document.getElementById('takePhotoInput').value = '';
+      showScreen('screenCamera');
+      startCamera();
+    }
+
+    async function approve() {
+      if (!extractedAmount) {
+        alert('Redo the Scan');
+        return;
+      }
+
+      document.getElementById('approvedAmount').textContent = extractedAmount;
+      document.getElementById('saveStatus').textContent     = 'Saving to database…';
+      document.getElementById('saveStatus').style.color    = 'var(--muted)';
+      showScreen('screenApproved');
+
+      try {
+        await insertBill({
+          amount:     extractedAmount,
+          status:     'approved',
+          scanned_at: new Date().toISOString()
+        });
+        document.getElementById('saveStatus').textContent  = '✓ Saved to database';
+        document.getElementById('saveStatus').style.color = 'var(--green)';
+      } catch (err) {
+        console.error('Save failed:', err.message);
+        document.getElementById('saveStatus').textContent  = '⚠ Could not save: ' + err.message;
+        document.getElementById('saveStatus').style.color = 'var(--red)';
+      }
+    }
+
+    function restart() {
+      capturedDataUrl  = null;
+      extractedAmount  = null;
+      document.getElementById('fileInput').value      = '';
+      document.getElementById('takePhotoInput').value = '';
+      showScreen('screenCamera');
+      startCamera();
+    }
+
+    // ── Transactions ──────────────────────────────────────────────────────────
+    async function showTransactions(from) {
+      txPrevScreen = from || (document.querySelector('.screen.active')?.id) || 'screenCamera';
+      showScreen('screenTransactions');
+      const list = document.getElementById('txList');
+      list.innerHTML = '<p style="color:var(--muted);font-size:14px;">Loading…</p>';
+      try {
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/bills?select=amount,status,scanned_at&order=scanned_at.asc`,
+          { headers: { 'apikey': SUPABASE_KEY } }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const rows = await res.json();
+        if (!rows.length) {
+          list.innerHTML = '<p style="color:var(--muted);font-size:14px;">No transactions yet.</p>';
+          return;
+        }
+
+        // Summary totals
+        const total = rows.reduce((sum, r) => {
+          const n = parseFloat(String(r.amount).replace(/[^0-9.]/g, ''));
+          return sum + (isNaN(n) ? 0 : n);
+        }, 0);
+        const currency = (String(rows[0].amount).match(/[^0-9.,\s]/) || [''])[0];
+        document.getElementById('txSummary').innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Transactions</div>
+              <div style="font-size:28px;font-weight:800;margin-top:4px;">${rows.length}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Total Amount</div>
+              <div style="font-size:28px;font-weight:800;margin-top:4px;">${currency}${total.toFixed(2)}</div>
+            </div>
+          </div>`;
+
+        // Group rows by date
+        let lastDate = null, tableRows = '', idx = 1;
+        rows.forEach(r => {
+          const d    = new Date(r.scanned_at);
+          const date = d.toLocaleDateString(undefined, { weekday:'short', day:'2-digit', month:'short', year:'numeric' });
+          const time = d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+          if (date !== lastDate) {
+            if (lastDate !== null) {
+              tableRows += `<tr><td colspan="4" style="padding:0;"><hr style="border:none;border-top:1px solid var(--border);margin:4px 0;"/></td></tr>`;
+            }
+            tableRows += `<tr><td colspan="4" style="padding:10px 0 4px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;">${date}</td></tr>`;
+            lastDate = date;
+          }
+          tableRows += `<tr>
+            <td style="padding:10px 12px;border:1px solid var(--border);font-size:16px;font-weight:800;">${formatAmount(r.amount)}</td>
+            <td style="padding:10px 12px;border:1px solid var(--border);color:var(--muted);">${time}</td>
+            <td style="padding:10px 12px;border:1px solid var(--border);"><span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px;background:#14532d;color:#4ade80;">${r.status}</span></td>
+            <td style="padding:10px 12px;border:1px solid var(--border);color:var(--muted);font-size:12px;">${idx++}</td>
+          </tr>`;
+        });
+        list.innerHTML = `
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr style="background:var(--surface);color:var(--muted);text-align:left;">
+                  <th style="padding:10px 12px;border:1px solid var(--border);">Amount</th>
+                  <th style="padding:10px 12px;border:1px solid var(--border);">Time</th>
+                  <th style="padding:10px 12px;border:1px solid var(--border);">Status</th>
+                  <th style="padding:10px 12px;border:1px solid var(--border);">#</th>
+                </tr>
+              </thead>
+              <tbody style="color:var(--text);">
+                ${tableRows}
+              </tbody>
+            </table>
+          </div>`;
+      } catch(err) {
+        list.innerHTML = `<p style="color:var(--red);font-size:14px;">Could not load: ${err.message}</p>`;
+      }
+    }
+
+    // ── Manual Entry ──────────────────────────────────────────────────────────
+    function showManualEntry() {
+      const m = document.getElementById('manualModal');
+      m.style.display = 'flex';
+      document.getElementById('manualInput').value = '';
+      document.getElementById('manualInput').focus();
+    }
+
+    function closeManualEntry() {
+      document.getElementById('manualModal').style.display = 'none';
+    }
+
+    async function saveManualEntry() {
+      const val = document.getElementById('manualInput').value.trim();
+      if (!val || isNaN(parseFloat(val))) { alert('Please enter a valid amount.'); return; }
+      const amount = parseFloat(val).toFixed(2);
+      closeManualEntry();
+      try {
+        await insertBill({ amount, status: 'approved', scanned_at: new Date().toISOString() });
+        showToast(`✓ ${amount} added successfully`);
+      } catch(err) {
+        alert('Could not save: ' + err.message);
+      }
+    }
+
+    function showToast(msg) {
+      let t = document.getElementById('toast');
+      if (!t) {
+        t = document.createElement('div');
+        t.id = 'toast';
+        t.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#22c55e;color:#fff;font-weight:700;font-size:14px;padding:12px 24px;border-radius:99px;z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4);transition:opacity .4s;';
+        document.body.appendChild(t);
+      }
+      t.textContent = msg;
+      t.style.opacity = '1';
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+    }
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    startCamera();
+  </script>
+
+</body>
+</html>
