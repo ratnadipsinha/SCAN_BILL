@@ -479,21 +479,68 @@
     const SUPABASE_URL = 'https://dcuaaioattrrgeauoeum.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_ZH8Zas2eUQHpSR3Ww5aHiQ_-_WOSQZF';
 
-    async function insertBill(record) {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/bills`, {
-        method:  'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey':       SUPABASE_KEY,
-          'Prefer':       'return=minimal'
-        },
-        body: JSON.stringify(record)
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`HTTP ${res.status}: ${txt}`);
+    // ── Offline queue (persisted in localStorage) ─────────────────────────────
+    const QUEUE_KEY = 'billscan_queue';
+
+    function loadQueue()       { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } }
+    function saveQueue(q)      { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); }
+    function queueBill(record) { const q = loadQueue(); q.push(record); saveQueue(q); updateQueueBadge(); }
+
+    function updateQueueBadge() {
+      const q = loadQueue();
+      let badge = document.getElementById('queueBadge');
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'queueBadge';
+        badge.style.cssText = 'position:fixed;top:12px;right:12px;background:#f59e0b;color:#000;font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px;z-index:998;display:none;';
+        document.body.appendChild(badge);
+      }
+      if (q.length > 0) {
+        badge.textContent = `${q.length} pending upload${q.length > 1 ? 's' : ''}`;
+        badge.style.display = 'block';
+      } else {
+        badge.style.display = 'none';
       }
     }
+
+    async function pushToSupabase(record) {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/bills`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Prefer': 'return=minimal' },
+        body: JSON.stringify(record)
+      });
+      if (!res.ok) { const txt = await res.text(); throw new Error(`HTTP ${res.status}: ${txt}`); }
+    }
+
+    async function flushQueue() {
+      const q = loadQueue();
+      if (!q.length) return;
+      const remaining = [];
+      for (const record of q) {
+        try { await pushToSupabase(record); }
+        catch { remaining.push(record); }
+      }
+      saveQueue(remaining);
+      updateQueueBadge();
+      if (remaining.length < q.length) {
+        const synced = q.length - remaining.length;
+        showToast(`✓ ${synced} pending bill${synced > 1 ? 's' : ''} saved to database`);
+      }
+    }
+
+    async function insertBill(record) {
+      try {
+        await pushToSupabase(record);
+      } catch {
+        queueBill(record);
+        throw new Error('offline');
+      }
+    }
+
+    // Retry whenever the browser reports it's back online
+    window.addEventListener('online', () => { flushQueue(); });
+    // Also retry every 30 seconds in the background
+    setInterval(() => { if (navigator.onLine) flushQueue(); }, 30000);
 
     // ── State ──────────────────────────────────────────────────────────────────
     let stream = null;
@@ -784,9 +831,13 @@
         document.getElementById('saveStatus').textContent  = '✓ Saved to database';
         document.getElementById('saveStatus').style.color = 'var(--green)';
       } catch (err) {
-        console.error('Save failed:', err.message);
-        document.getElementById('saveStatus').textContent  = '⚠ Could not save: ' + err.message;
-        document.getElementById('saveStatus').style.color = 'var(--red)';
+        if (err.message === 'offline') {
+          document.getElementById('saveStatus').textContent  = '⚠ Database connection lost — will update once online';
+          document.getElementById('saveStatus').style.color = '#f59e0b';
+        } else {
+          document.getElementById('saveStatus').textContent  = '⚠ Could not save: ' + err.message;
+          document.getElementById('saveStatus').style.color = 'var(--red)';
+        }
       }
     }
 
@@ -897,22 +948,28 @@
         await insertBill({ amount, status: 'approved', scanned_at: new Date().toISOString() });
         showToast(`✓ ${amount} added successfully`);
       } catch(err) {
-        alert('Could not save: ' + err.message);
+        if (err.message === 'offline') {
+          showToast('⚠ Database connection lost — will update once online', '#f59e0b', '#000');
+        } else {
+          alert('Could not save: ' + err.message);
+        }
       }
     }
 
-    function showToast(msg) {
+    function showToast(msg, bg = '#22c55e', color = '#fff') {
       let t = document.getElementById('toast');
       if (!t) {
         t = document.createElement('div');
         t.id = 'toast';
-        t.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#22c55e;color:#fff;font-weight:700;font-size:14px;padding:12px 24px;border-radius:99px;z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4);transition:opacity .4s;';
+        t.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);font-weight:700;font-size:14px;padding:12px 24px;border-radius:99px;z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4);transition:opacity .4s;';
         document.body.appendChild(t);
       }
       t.textContent = msg;
+      t.style.background = bg;
+      t.style.color = color;
       t.style.opacity = '1';
       clearTimeout(t._timer);
-      t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+      t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3500);
     }
 
     // ── Service Worker ────────────────────────────────────────────────────────
@@ -921,6 +978,8 @@
     }
 
     // ── Boot ──────────────────────────────────────────────────────────────────
+    updateQueueBadge();
+    if (navigator.onLine) flushQueue();
     startCamera();
   </script>
 
