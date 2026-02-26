@@ -886,21 +886,23 @@
             </div>
           </div>`;
 
-        // Group rows by date
-        let lastDate = null, tableRows = '', idx = 1;
+        // Group rows by month
+        let lastMonth = null, tableRows = '', idx = 1;
         rows.forEach(r => {
-          const d    = new Date(r.scanned_at);
-          const date = d.toLocaleDateString(undefined, { weekday:'short', day:'2-digit', month:'short', year:'numeric' });
-          const time = d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
-          if (date !== lastDate) {
-            if (lastDate !== null) {
-              tableRows += `<tr><td colspan="4" style="padding:0;"><hr style="border:none;border-top:1px solid var(--border);margin:4px 0;"/></td></tr>`;
+          const d     = new Date(r.scanned_at);
+          const month = d.toLocaleDateString(undefined, { month:'long', year:'numeric' });
+          const day   = d.toLocaleDateString(undefined, { day:'2-digit', month:'short' });
+          const time  = d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+          if (month !== lastMonth) {
+            if (lastMonth !== null) {
+              tableRows += `<tr><td colspan="5" style="padding:0;"><hr style="border:none;border-top:2px solid var(--border);margin:6px 0;"/></td></tr>`;
             }
-            tableRows += `<tr><td colspan="4" style="padding:10px 0 4px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;">${date}</td></tr>`;
-            lastDate = date;
+            tableRows += `<tr><td colspan="5" style="padding:14px 0 6px;font-size:13px;font-weight:800;color:var(--accent);letter-spacing:.3px;">${month}</td></tr>`;
+            lastMonth = month;
           }
           tableRows += `<tr>
             <td style="padding:10px 12px;border:1px solid var(--border);font-size:16px;font-weight:800;">${formatAmount(r.amount)}</td>
+            <td style="padding:10px 12px;border:1px solid var(--border);color:var(--muted);">${day}</td>
             <td style="padding:10px 12px;border:1px solid var(--border);color:var(--muted);">${time}</td>
             <td style="padding:10px 12px;border:1px solid var(--border);"><span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px;background:#14532d;color:#4ade80;">${r.status}</span></td>
             <td style="padding:10px 12px;border:1px solid var(--border);color:var(--muted);font-size:12px;">${idx++}</td>
@@ -912,6 +914,7 @@
               <thead>
                 <tr style="background:var(--surface);color:var(--muted);text-align:left;">
                   <th style="padding:10px 12px;border:1px solid var(--border);">Amount</th>
+                  <th style="padding:10px 12px;border:1px solid var(--border);">Date</th>
                   <th style="padding:10px 12px;border:1px solid var(--border);">Time</th>
                   <th style="padding:10px 12px;border:1px solid var(--border);">Status</th>
                   <th style="padding:10px 12px;border:1px solid var(--border);">#</th>
