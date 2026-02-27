@@ -538,6 +538,9 @@
           Send
         </button>
       </div>
+      <div id="txOfflineBanner" style="display:none;background:#451a03;border:1px solid #92400e;border-radius:10px;padding:10px 14px;font-size:13px;color:#fcd34d;">
+        ⚠ Database connection interrupted — showing last saved data. New transactions will appear once back online.
+      </div>
       <div id="txList" style="display:flex;flex-direction:column;gap:10px;">
         <p style="color:var(--muted);font-size:14px;">Loading…</p>
       </div>
@@ -924,6 +927,56 @@
     }
 
     // ── Transactions ──────────────────────────────────────────────────────────
+    function renderTransactions(rows) {
+      const list = document.getElementById('txList');
+      const groups = {}; txGroups = groups;
+      const monthOrder = [];
+      rows.forEach(r => {
+        const d   = new Date(r.scanned_at);
+        const key = `${d.getFullYear()}-${d.getMonth()}`;
+        if (!groups[key]) {
+          groups[key] = { year: d.getFullYear(), month: d.toLocaleDateString(undefined,{month:'short'}), rows: [] };
+          monthOrder.push(key);
+        }
+        groups[key].rows.push(r);
+      });
+
+      const grandTotal = rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
+      document.getElementById('txSummary').innerHTML = `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Total Transactions</div>
+            <div style="font-size:26px;font-weight:800;margin-top:2px;">${rows.length}</div></div>
+          <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Grand Total</div>
+            <div style="font-size:26px;font-weight:800;margin-top:2px;">${grandTotal.toFixed(2)}</div></div>
+        </div>`;
+
+      const th  = s => `<th style="padding:6px 10px;border:1px solid var(--border);color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;">${s}</th>`;
+      const td  = (s,bold) => `<td style="padding:6px 10px;border:1px solid var(--border);${bold?'font-weight:700;':'color:var(--muted);'}font-size:12px;">${s}</td>`;
+      const tbl = (thead,tbody) => `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">${thead}${tbody}</table></div>`;
+
+      let html = '';
+      monthOrder.forEach(key => {
+        const g = groups[key];
+        const monthTotal = g.rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
+        html += tbl(
+          `<thead><tr>${th('Year')}${th('Month')}${th('Total Transactions')}${th('Total Amount')}</tr></thead>`,
+          `<tbody><tr>${td(g.year,true)}${td(g.month,true)}${td(g.rows.length,true)}${td(monthTotal.toFixed(2),true)}</tr></tbody>`
+        );
+        const detailRows = g.rows.map(r => {
+          const d    = new Date(r.scanned_at);
+          const date = d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
+          const time = d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',hour12:false});
+          return `<tr>${td(date,false)}${td(time,false)}${td(formatAmount(r.amount),true)}${td(r.status.charAt(0).toUpperCase()+r.status.slice(1),false)}</tr>`;
+        }).join('');
+        html += tbl(
+          `<thead><tr>${th('Date')}${th('Time')}${th('Amount')}${th('Status')}</tr></thead>`,
+          `<tbody>${detailRows}</tbody>`
+        );
+        html += `<div style="height:20px;"></div>`;
+      });
+      list.innerHTML = html;
+    }
+
     async function showTransactions(from) {
       txPrevScreen = from || (document.querySelector('.screen.active')?.id) || 'screenCamera';
       showScreen('screenTransactions');
@@ -936,67 +989,28 @@
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = await res.json();
+        // Cache successful response
+        localStorage.setItem('billscan_tx_cache', JSON.stringify(rows));
+        document.getElementById('txOfflineBanner').style.display = 'none';
+
         if (!rows.length) {
           list.innerHTML = '<p style="color:var(--muted);font-size:14px;">No transactions yet.</p>';
           return;
         }
 
-        // Group rows by month key
-        const groups = {}; txGroups = groups;
-        const monthOrder = [];
-        rows.forEach(r => {
-          const d    = new Date(r.scanned_at);
-          const key  = `${d.getFullYear()}-${d.getMonth()}`;
-          if (!groups[key]) {
-            groups[key] = { year: d.getFullYear(), month: d.toLocaleDateString(undefined,{month:'short'}), rows: [] };
-            monthOrder.push(key);
-          }
-          groups[key].rows.push(r);
-        });
-
-        // Overall summary card
-        const grandTotal = rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
-        document.getElementById('txSummary').innerHTML = `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
-            <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Total Transactions</div>
-              <div style="font-size:26px;font-weight:800;margin-top:2px;">${rows.length}</div></div>
-            <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Grand Total</div>
-              <div style="font-size:26px;font-weight:800;margin-top:2px;">${grandTotal.toFixed(2)}</div></div>
-          </div>`;
-
-        // Build per-month blocks
-        const th  = s => `<th style="padding:6px 10px;border:1px solid var(--border);color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;">${s}</th>`;
-        const td  = (s,bold) => `<td style="padding:6px 10px;border:1px solid var(--border);${bold?'font-weight:700;':'color:var(--muted);'}font-size:12px;">${s}</td>`;
-        const tbl = (thead,tbody) => `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">${thead}${tbody}</table></div>`;
-
-        let html = '';
-        monthOrder.forEach(key => {
-          const g = groups[key];
-          const monthTotal = g.rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
-
-          // Summary table for this month
-          html += tbl(
-            `<thead><tr>${th('Year')}${th('Month')}${th('Total Transactions')}${th('Total Amount')}</tr></thead>`,
-            `<tbody><tr>${td(g.year,true)}${td(g.month,true)}${td(g.rows.length,true)}${td(monthTotal.toFixed(2),true)}</tr></tbody>`
-          );
-
-          // Detail table for this month
-          const detailRows = g.rows.map(r => {
-            const d    = new Date(r.scanned_at);
-            const date = d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
-            const time = d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',hour12:false});
-            return `<tr>${td(date,false)}${td(time,false)}${td(formatAmount(r.amount),true)}${td(r.status.charAt(0).toUpperCase()+r.status.slice(1),false)}</tr>`;
-          }).join('');
-          html += tbl(
-            `<thead><tr>${th('Date')}${th('Time')}${th('Amount')}${th('Status')}</tr></thead>`,
-            `<tbody>${detailRows}</tbody>`
-          );
-
-          html += `<div style="height:20px;"></div>`;
-        });
-        list.innerHTML = html;
+        renderTransactions(rows);
       } catch(err) {
-        list.innerHTML = `<p style="color:var(--red);font-size:14px;">Could not load: ${err.message}</p>`;
+        // Try loading from cache
+        const cached = localStorage.getItem('billscan_tx_cache');
+        if (cached) {
+          const rows = JSON.parse(cached);
+          document.getElementById('txOfflineBanner').style.display = 'block';
+          if (rows.length) renderTransactions(rows);
+          else list.innerHTML = '<p style="color:var(--muted);font-size:14px;">No transactions yet.</p>';
+        } else {
+          list.innerHTML = '<p style="color:var(--muted);font-size:14px;">No data available offline.</p>';
+          document.getElementById('txOfflineBanner').style.display = 'block';
+        }
       }
     }
 
