@@ -541,10 +541,11 @@
       <p style="font-size:13px;color:var(--muted);margin-top:8px;line-height:1.6;">Your phone number is used to keep your<br>bills separate from other users.</p>
     </div>
     <div style="width:100%;max-width:320px;display:flex;flex-direction:column;gap:12px;">
-      <input id="phoneInput" type="tel" inputmode="numeric" placeholder="+91 98765 43210"
-        style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;font-size:18px;font-weight:600;color:var(--text);width:100%;outline:none;text-align:center;" />
+      <input id="phoneInput" type="tel" inputmode="numeric" placeholder="98765 43210"
+        style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;font-size:18px;font-weight:600;color:var(--text);width:100%;outline:none;text-align:center;"
+        onkeydown="if(event.key==='Enter')savePhone()" />
       <p id="phoneError" style="font-size:12px;color:var(--red);text-align:center;min-height:16px;"></p>
-      <button class="btn btn-primary" onclick="savePhone()">Continue</button>
+      <button class="btn btn-primary" onclick="savePhone()">Continue →</button>
     </div>
   </div>
 
@@ -1232,23 +1233,22 @@
     function unlockApp() {
       document.getElementById('pinScreen').style.display = 'none';
       document.getElementById('pinError').textContent    = '';
-      // After PIN, check if phone is registered
-      if (!currentUserId) {
-        document.getElementById('phoneScreen').style.display = 'flex';
-        setTimeout(() => document.getElementById('phoneInput').focus(), 300);
-      }
+      pinBuffer = '';
+      updateDots();
     }
 
     // ── Phone Registration ─────────────────────────────────────────────────────
     function savePhone() {
-      const raw = document.getElementById('phoneInput').value.trim().replace(/\s/g, '');
-      if (raw.length < 7) {
-        document.getElementById('phoneError').textContent = 'Please enter a valid phone number.';
+      const raw = document.getElementById('phoneInput').value.trim().replace(/\s+/g, '').replace(/^(\+91|91)/, '');
+      if (!/^[6-9]\d{9}$/.test(raw)) {
+        document.getElementById('phoneError').textContent = 'Enter a valid 10-digit mobile number (e.g. 98765 43210).';
         return;
       }
       currentUserId = raw;
       localStorage.setItem(USER_ID_KEY, raw);
       document.getElementById('phoneScreen').style.display = 'none';
+      // First time: now set up PIN
+      initPin();
     }
 
     // ── Admin Auth ────────────────────────────────────────────────────────────
@@ -1343,7 +1343,14 @@
     }
 
     // ── Boot ──────────────────────────────────────────────────────────────────
-    initPin();
+    if (!currentUserId) {
+      // First time: ask for phone number first, PIN setup comes after
+      document.getElementById('phoneScreen').style.display = 'flex';
+      setTimeout(() => document.getElementById('phoneInput').focus(), 300);
+    } else {
+      // Returning user: go straight to PIN
+      initPin();
+    }
     updateQueueBadge();
     if (navigator.onLine) flushQueue();
     startCamera();
