@@ -1007,18 +1007,29 @@
       document.getElementById('monthPickerModal').style.display = 'none';
       const g = txGroups[key];
       if (!g) return;
+      const pad = (s, n) => String(s).padEnd(n, ' ');
       const monthTotal = g.rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
+
       let msg = `*Bill Summary — ${g.month} ${g.year}*\n`;
-      msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+      msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      msg += `📅 *${g.month} ${g.year}*\n`;
       msg += `Transactions : ${g.rows.length}\n`;
       msg += `Total Amount : ${monthTotal.toFixed(2)}\n`;
-      msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+      msg += `──────────────────────────\n`;
+      msg += `\`\`\`\n`;
+      msg += `${pad('Date',12)}${pad('Time',8)}${pad('Amount',10)}\n`;
+      msg += `${'─'.repeat(30)}\n`;
       g.rows.forEach(r => {
         const d    = new Date(r.scanned_at);
         const date = d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
         const time = d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',hour12:false});
-        msg += `${date}  ${time}  *${formatAmount(r.amount)}*\n`;
+        msg += `${pad(date,12)}${pad(time,8)}${formatAmount(r.amount)}\n`;
       });
+      msg += `${'─'.repeat(30)}\n`;
+      msg += `${'TOTAL'.padEnd(20)}${monthTotal.toFixed(2)}\n`;
+      msg += `\`\`\`\n`;
+      msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
       window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
     }
 
