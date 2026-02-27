@@ -38,6 +38,28 @@
       align-items: center;
     }
 
+    /* ── PIN ── */
+    .pin-dot {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      border: 2px solid var(--muted);
+      background: transparent;
+      transition: background .15s, border-color .15s;
+    }
+    .pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+    .pin-dot.error  { background: var(--red);    border-color: var(--red); }
+    .pin-key {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 22px; font-weight: 700;
+      cursor: pointer;
+      transition: background .1s;
+    }
+    .pin-key:active { background: #2a2a2a; }
+
     /* ── Header ── */
     header {
       width: 100%;
@@ -322,6 +344,43 @@
   </style>
 </head>
 <body>
+
+  <!-- ── PIN Lock Screen ── -->
+  <div id="pinScreen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:24px;">
+    <div style="text-align:center;">
+      <div style="width:56px;height:56px;background:var(--accent);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <h2 id="pinTitle" style="font-size:20px;font-weight:800;">Enter PIN</h2>
+      <p id="pinSubtitle" style="font-size:13px;color:var(--muted);margin-top:6px;">Enter your 4-digit PIN to continue</p>
+    </div>
+
+    <!-- Dots -->
+    <div style="display:flex;gap:16px;">
+      <div class="pin-dot" id="dot0"></div>
+      <div class="pin-dot" id="dot1"></div>
+      <div class="pin-dot" id="dot2"></div>
+      <div class="pin-dot" id="dot3"></div>
+    </div>
+
+    <p id="pinError" style="font-size:13px;color:var(--red);min-height:18px;"></p>
+
+    <!-- Keypad -->
+    <div style="display:grid;grid-template-columns:repeat(3,72px);gap:12px;">
+      <button class="pin-key" onclick="pinKey('1')">1</button>
+      <button class="pin-key" onclick="pinKey('2')">2</button>
+      <button class="pin-key" onclick="pinKey('3')">3</button>
+      <button class="pin-key" onclick="pinKey('4')">4</button>
+      <button class="pin-key" onclick="pinKey('5')">5</button>
+      <button class="pin-key" onclick="pinKey('6')">6</button>
+      <button class="pin-key" onclick="pinKey('7')">7</button>
+      <button class="pin-key" onclick="pinKey('8')">8</button>
+      <button class="pin-key" onclick="pinKey('9')">9</button>
+      <div></div>
+      <button class="pin-key" onclick="pinKey('0')">0</button>
+      <button class="pin-key" onclick="pinBack()" style="font-size:18px;">⌫</button>
+    </div>
+  </div>
 
   <header>
     <div class="logo-icon">
@@ -1031,12 +1090,91 @@
       window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
     }
 
+    // ── PIN Lock ──────────────────────────────────────────────────────────────
+    const PIN_KEY     = 'billscan_pin';
+    let   pinBuffer   = '';
+    let   pinMode     = 'enter'; // 'set' | 'confirm' | 'enter'
+    let   pinSetFirst = '';
+
+    function initPin() {
+      const stored = localStorage.getItem(PIN_KEY);
+      const screen = document.getElementById('pinScreen');
+      screen.style.display = 'flex';
+      if (!stored) {
+        pinMode = 'set';
+        document.getElementById('pinTitle').textContent    = 'Set a PIN';
+        document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for this app';
+      } else {
+        pinMode = 'enter';
+        document.getElementById('pinTitle').textContent    = 'Enter PIN';
+        document.getElementById('pinSubtitle').textContent = 'Enter your 4-digit PIN to continue';
+      }
+    }
+
+    function pinKey(d) {
+      if (pinBuffer.length >= 4) return;
+      pinBuffer += d;
+      updateDots();
+      if (pinBuffer.length === 4) setTimeout(pinSubmit, 150);
+    }
+
+    function pinBack() {
+      pinBuffer = pinBuffer.slice(0, -1);
+      document.getElementById('pinError').textContent = '';
+      updateDots();
+    }
+
+    function updateDots(state) {
+      for (let i = 0; i < 4; i++) {
+        const dot = document.getElementById('dot' + i);
+        dot.className = 'pin-dot';
+        if (state === 'error') dot.classList.add('error');
+        else if (i < pinBuffer.length) dot.classList.add('filled');
+      }
+    }
+
+    function pinSubmit() {
+      if (pinMode === 'set') {
+        pinSetFirst = pinBuffer;
+        pinBuffer   = '';
+        pinMode     = 'confirm';
+        updateDots();
+        document.getElementById('pinTitle').textContent    = 'Confirm PIN';
+        document.getElementById('pinSubtitle').textContent = 'Re-enter your PIN to confirm';
+      } else if (pinMode === 'confirm') {
+        if (pinBuffer === pinSetFirst) {
+          localStorage.setItem(PIN_KEY, pinBuffer);
+          unlockApp();
+        } else {
+          pinBuffer = ''; pinSetFirst = ''; pinMode = 'set';
+          updateDots('error');
+          document.getElementById('pinError').textContent   = 'PINs did not match. Try again.';
+          document.getElementById('pinTitle').textContent    = 'Set a PIN';
+          document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for this app';
+        }
+      } else {
+        if (pinBuffer === localStorage.getItem(PIN_KEY)) {
+          unlockApp();
+        } else {
+          pinBuffer = '';
+          updateDots('error');
+          document.getElementById('pinError').textContent = 'Incorrect PIN. Try again.';
+        }
+      }
+    }
+
+    function unlockApp() {
+      document.getElementById('pinScreen').style.display = 'none';
+      document.getElementById('pinError').textContent    = '';
+    }
+
     // ── Service Worker ────────────────────────────────────────────────────────
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(() => {});
     }
 
     // ── Boot ──────────────────────────────────────────────────────────────────
+    initPin();
     updateQueueBadge();
     if (navigator.onLine) flushQueue();
     startCamera();
