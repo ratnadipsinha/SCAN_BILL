@@ -444,6 +444,9 @@
         <button class="btn btn-retake" onclick="showManualEntry()">+ Add Amount</button>
         <button class="btn btn-retake" onclick="showTransactions()">Show all transactions</button>
       </div>
+      <button class="btn" onclick="showAdmin()" style="margin-top:8px;background:#2a2a2a;border:1px solid #444;color:#f59e0b;font-size:12px;font-weight:700;letter-spacing:.5px;">
+        ⚙ Admin — All Users
+      </button>
     </div>
 
     <!-- ── SCREEN 2: Processing ── -->
@@ -539,6 +542,20 @@
       <div class="btn-row">
         <button class="btn btn-retake" onclick="closeManualEntry()">Cancel</button>
         <button class="btn btn-approve" onclick="saveManualEntry()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SCREEN 6: Admin ── -->
+  <div class="screen" id="screenAdmin" style="padding:0;">
+    <div style="width:100%;max-width:680px;padding:0 20px 24px;display:flex;flex-direction:column;gap:12px;">
+      <div style="display:flex;align-items:center;gap:12px;padding-top:8px;">
+        <button class="btn btn-retake" style="padding:8px 16px;font-size:13px;" onclick="restart()">&#8592; Back</button>
+        <h2 style="font-size:18px;font-weight:800;flex:1;">Admin — All Users</h2>
+      </div>
+      <div id="adminSummary"></div>
+      <div id="adminList">
+        <p style="color:var(--muted);font-size:14px;">Loading…</p>
       </div>
     </div>
   </div>
@@ -1217,6 +1234,71 @@
       currentUserId = raw;
       localStorage.setItem(USER_ID_KEY, raw);
       document.getElementById('phoneScreen').style.display = 'none';
+    }
+
+    // ── Admin ─────────────────────────────────────────────────────────────────
+    async function showAdmin() {
+      showScreen('screenAdmin');
+      const list    = document.getElementById('adminList');
+      const summary = document.getElementById('adminSummary');
+      list.innerHTML = '<p style="color:var(--muted);font-size:14px;">Loading…</p>';
+      try {
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/bills?select=user_id,amount,status,scanned_at&order=user_id.asc,scanned_at.asc`,
+          { headers: { 'apikey': SUPABASE_KEY } }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const rows = await res.json();
+
+        if (!rows.length) {
+          list.innerHTML = '<p style="color:var(--muted);font-size:14px;">No data found.</p>';
+          return;
+        }
+
+        // Summary
+        const grandTotal = rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
+        const userCount  = new Set(rows.map(r => r.user_id)).size;
+        summary.innerHTML = `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;justify-content:space-between;">
+            <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Users</div>
+              <div style="font-size:24px;font-weight:800;">${userCount}</div></div>
+            <div style="text-align:center;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Total Bills</div>
+              <div style="font-size:24px;font-weight:800;">${rows.length}</div></div>
+            <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Grand Total</div>
+              <div style="font-size:24px;font-weight:800;">${grandTotal.toFixed(2)}</div></div>
+          </div>`;
+
+        // Table
+        const th = s => `<th style="padding:7px 10px;border:1px solid var(--border);color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;white-space:nowrap;">${s}</th>`;
+        const td = (s,bold) => `<td style="padding:7px 10px;border:1px solid var(--border);font-size:12px;${bold?'font-weight:700;':'color:var(--muted);'}white-space:nowrap;">${s}</td>`;
+
+        let lastUser = null;
+        const bodyRows = rows.map(r => {
+          const d      = new Date(r.scanned_at);
+          const date   = d.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'});
+          const time   = d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',hour12:false});
+          const isNew  = r.user_id !== lastUser;
+          lastUser     = r.user_id;
+          const rowBg  = isNew ? 'background:#1e1e2e;' : '';
+          return `<tr style="${rowBg}">
+            <td style="padding:7px 10px;border:1px solid var(--border);font-size:11px;color:#f59e0b;font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis;">${r.user_id || '—'}</td>
+            ${td(date,false)}${td(time,false)}${td(formatAmount(r.amount),true)}
+            <td style="padding:7px 10px;border:1px solid var(--border);"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:99px;background:#14532d;color:#4ade80;">${r.status}</span></td>
+          </tr>`;
+        }).join('');
+
+        list.innerHTML = `
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="background:var(--surface);">
+                ${th('User (Phone)')}${th('Date')}${th('Time')}${th('Amount')}${th('Status')}
+              </tr></thead>
+              <tbody>${bodyRows}</tbody>
+            </table>
+          </div>`;
+      } catch(err) {
+        list.innerHTML = `<p style="color:var(--red);font-size:14px;">Could not load: ${err.message}</p>`;
+      }
     }
 
     // ── Service Worker ────────────────────────────────────────────────────────
