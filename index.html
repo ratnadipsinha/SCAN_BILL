@@ -868,63 +868,60 @@
           return;
         }
 
-        // Summary totals
-        const total = rows.reduce((sum, r) => {
-          const n = parseFloat(String(r.amount).replace(/[^0-9.]/g, ''));
-          return sum + (isNaN(n) ? 0 : n);
-        }, 0);
-        const currency = (String(rows[0].amount).match(/[^0-9.,\s]/) || [''])[0];
+        // Group rows by month key
+        const groups = {};
+        const monthOrder = [];
+        rows.forEach(r => {
+          const d    = new Date(r.scanned_at);
+          const key  = `${d.getFullYear()}-${d.getMonth()}`;
+          if (!groups[key]) {
+            groups[key] = { year: d.getFullYear(), month: d.toLocaleDateString(undefined,{month:'short'}), rows: [] };
+            monthOrder.push(key);
+          }
+          groups[key].rows.push(r);
+        });
+
+        // Overall summary card
+        const grandTotal = rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
         document.getElementById('txSummary').innerHTML = `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
-            <div>
-              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Transactions</div>
-              <div style="font-size:28px;font-weight:800;margin-top:4px;">${rows.length}</div>
-            </div>
-            <div style="text-align:right;">
-              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Total Amount</div>
-              <div style="font-size:28px;font-weight:800;margin-top:4px;">${currency}${total.toFixed(2)}</div>
-            </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
+            <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Total Transactions</div>
+              <div style="font-size:26px;font-weight:800;margin-top:2px;">${rows.length}</div></div>
+            <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Grand Total</div>
+              <div style="font-size:26px;font-weight:800;margin-top:2px;">${grandTotal.toFixed(2)}</div></div>
           </div>`;
 
-        // Group rows by month
-        let lastMonth = null, tableRows = '', idx = 1;
-        rows.forEach(r => {
-          const d     = new Date(r.scanned_at);
-          const month = d.toLocaleDateString(undefined, { month:'long', year:'numeric' });
-          const day   = d.toLocaleDateString(undefined, { day:'2-digit', month:'short' });
-          const time  = d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
-          if (month !== lastMonth) {
-            if (lastMonth !== null) {
-              tableRows += `<tr><td colspan="5" style="padding:0;"><hr style="border:none;border-top:2px solid var(--border);margin:6px 0;"/></td></tr>`;
-            }
-            tableRows += `<tr><td colspan="5" style="padding:14px 0 6px;font-size:13px;font-weight:800;color:var(--accent);letter-spacing:.3px;">${month}</td></tr>`;
-            lastMonth = month;
-          }
-          tableRows += `<tr>
-            <td style="padding:6px 10px;border:1px solid var(--border);font-size:14px;font-weight:800;">${formatAmount(r.amount)}</td>
-            <td style="padding:6px 10px;border:1px solid var(--border);color:var(--muted);font-size:12px;">${day}</td>
-            <td style="padding:6px 10px;border:1px solid var(--border);color:var(--muted);font-size:12px;">${time}</td>
-            <td style="padding:6px 10px;border:1px solid var(--border);"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:99px;background:#14532d;color:#4ade80;">${r.status}</span></td>
-            <td style="padding:6px 10px;border:1px solid var(--border);color:var(--muted);font-size:11px;">${idx++}</td>
-          </tr>`;
+        // Build per-month blocks
+        const th  = s => `<th style="padding:6px 10px;border:1px solid var(--border);color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;">${s}</th>`;
+        const td  = (s,bold) => `<td style="padding:6px 10px;border:1px solid var(--border);${bold?'font-weight:700;':'color:var(--muted);'}font-size:12px;">${s}</td>`;
+        const tbl = (thead,tbody) => `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">${thead}${tbody}</table></div>`;
+
+        let html = '';
+        monthOrder.forEach(key => {
+          const g = groups[key];
+          const monthTotal = g.rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
+
+          // Summary table for this month
+          html += tbl(
+            `<thead><tr>${th('Year')}${th('Month')}${th('Total Transactions')}${th('Total Amount')}</tr></thead>`,
+            `<tbody><tr>${td(g.year,true)}${td(g.month,true)}${td(g.rows.length,true)}${td(monthTotal.toFixed(2),true)}</tr></tbody>`
+          );
+
+          // Detail table for this month
+          const detailRows = g.rows.map(r => {
+            const d    = new Date(r.scanned_at);
+            const date = d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
+            const time = d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',hour12:false});
+            return `<tr>${td(date,false)}${td(time,false)}${td(formatAmount(r.amount),true)}${td(r.status.charAt(0).toUpperCase()+r.status.slice(1),false)}</tr>`;
+          }).join('');
+          html += tbl(
+            `<thead><tr>${th('Date')}${th('Time')}${th('Amount')}${th('Status')}</tr></thead>`,
+            `<tbody>${detailRows}</tbody>`
+          );
+
+          html += `<div style="height:20px;"></div>`;
         });
-        list.innerHTML = `
-          <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-              <thead>
-                <tr style="background:var(--surface);color:var(--muted);text-align:left;">
-                  <th style="padding:6px 10px;border:1px solid var(--border);">Amount</th>
-                  <th style="padding:6px 10px;border:1px solid var(--border);">Date</th>
-                  <th style="padding:6px 10px;border:1px solid var(--border);">Time</th>
-                  <th style="padding:6px 10px;border:1px solid var(--border);">Status</th>
-                  <th style="padding:6px 10px;border:1px solid var(--border);">#</th>
-                </tr>
-              </thead>
-              <tbody style="color:var(--text);">
-                ${tableRows}
-              </tbody>
-            </table>
-          </div>`;
+        list.innerHTML = html;
       } catch(err) {
         list.innerHTML = `<p style="color:var(--red);font-size:14px;">Could not load: ${err.message}</p>`;
       }
