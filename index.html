@@ -513,6 +513,23 @@
     </div>
   </div>
 
+  <!-- ── Phone Registration Screen ── -->
+  <div id="phoneScreen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9998;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;gap:24px;">
+    <div style="text-align:center;">
+      <div style="width:56px;height:56px;background:var(--accent);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.38 2 2 0 0 1 3.6 1.2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.77a16 16 0 0 0 5.85 5.85l.86-.86a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      </div>
+      <h2 style="font-size:20px;font-weight:800;">Register Your Number</h2>
+      <p style="font-size:13px;color:var(--muted);margin-top:8px;line-height:1.6;">Your phone number is used to keep your<br>bills separate from other users.</p>
+    </div>
+    <div style="width:100%;max-width:320px;display:flex;flex-direction:column;gap:12px;">
+      <input id="phoneInput" type="tel" inputmode="numeric" placeholder="+91 98765 43210"
+        style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;font-size:18px;font-weight:600;color:var(--text);width:100%;outline:none;text-align:center;" />
+      <p id="phoneError" style="font-size:12px;color:var(--red);text-align:center;min-height:16px;"></p>
+      <button class="btn btn-primary" onclick="savePhone()">Continue</button>
+    </div>
+  </div>
+
   <!-- ── Manual Entry Modal ── -->
   <div id="manualModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:center;justify-content:center;padding:20px;">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:360px;display:flex;flex-direction:column;gap:16px;">
@@ -620,6 +637,8 @@
     // ── State ──────────────────────────────────────────────────────────────────
     let stream = null;
     let txPrevScreen = 'screenCamera';
+    const USER_ID_KEY = 'billscan_user_id';
+    let   currentUserId = localStorage.getItem(USER_ID_KEY) || null;
     let capturedDataUrl = null;
     let extractedAmount = null;
     let txGroups = null;   // holds grouped data for WhatsApp share
@@ -902,7 +921,8 @@
         await insertBill({
           amount:     extractedAmount,
           status:     'approved',
-          scanned_at: new Date().toISOString()
+          scanned_at: new Date().toISOString(),
+          user_id:    currentUserId
         });
         document.getElementById('saveStatus').textContent  = '✓ Saved to database';
         document.getElementById('saveStatus').style.color = 'var(--green)';
@@ -984,13 +1004,13 @@
       list.innerHTML = '<p style="color:var(--muted);font-size:14px;">Loading…</p>';
       try {
         const res = await fetch(
-          `${SUPABASE_URL}/rest/v1/bills?select=amount,status,scanned_at&order=scanned_at.asc`,
+          `${SUPABASE_URL}/rest/v1/bills?select=amount,status,scanned_at&user_id=eq.${encodeURIComponent(currentUserId)}&order=scanned_at.asc`,
           { headers: { 'apikey': SUPABASE_KEY } }
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = await res.json();
         // Cache successful response
-        localStorage.setItem('billscan_tx_cache', JSON.stringify(rows));
+        localStorage.setItem('billscan_tx_cache_${currentUserId}', JSON.stringify(rows));
         document.getElementById('txOfflineBanner').style.display = 'none';
 
         if (!rows.length) {
@@ -1001,7 +1021,7 @@
         renderTransactions(rows);
       } catch(err) {
         // Try loading from cache
-        const cached = localStorage.getItem('billscan_tx_cache');
+        const cached = localStorage.getItem('billscan_tx_cache_${currentUserId}');
         if (cached) {
           const rows = JSON.parse(cached);
           document.getElementById('txOfflineBanner').style.display = 'block';
@@ -1032,7 +1052,7 @@
       const amount = parseFloat(val).toFixed(2);
       closeManualEntry();
       try {
-        await insertBill({ amount, status: 'approved', scanned_at: new Date().toISOString() });
+        await insertBill({ amount, status: 'approved', scanned_at: new Date().toISOString(), user_id: currentUserId });
         showToast(`✓ ${amount} added successfully`);
       } catch(err) {
         if (err.message === 'offline') {
@@ -1180,6 +1200,23 @@
     function unlockApp() {
       document.getElementById('pinScreen').style.display = 'none';
       document.getElementById('pinError').textContent    = '';
+      // After PIN, check if phone is registered
+      if (!currentUserId) {
+        document.getElementById('phoneScreen').style.display = 'flex';
+        setTimeout(() => document.getElementById('phoneInput').focus(), 300);
+      }
+    }
+
+    // ── Phone Registration ─────────────────────────────────────────────────────
+    function savePhone() {
+      const raw = document.getElementById('phoneInput').value.trim().replace(/\s/g, '');
+      if (raw.length < 7) {
+        document.getElementById('phoneError').textContent = 'Please enter a valid phone number.';
+        return;
+      }
+      currentUserId = raw;
+      localStorage.setItem(USER_ID_KEY, raw);
+      document.getElementById('phoneScreen').style.display = 'none';
     }
 
     // ── Service Worker ────────────────────────────────────────────────────────
