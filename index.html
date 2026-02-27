@@ -1009,18 +1009,24 @@
       if (!g) return;
       const monthTotal = g.rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
 
+      // Find max amount width for right-alignment
+      const amounts = g.rows.map(r => formatAmount(r.amount));
+      const maxAmt  = Math.max(...amounts.map(a => a.length), monthTotal.toFixed(2).length);
+      const rpad    = (s, n) => String(s).padStart(n, ' ');
+
       let msg = `*Bill Summary — ${g.month} ${g.year}*\n`;
       msg += `Transactions: ${g.rows.length}\n`;
-      msg += `─────────────────────\n`;
+      msg += `\`\`\`\n`;
 
-      g.rows.forEach(r => {
+      g.rows.forEach((r, i) => {
         const d    = new Date(r.scanned_at);
         const date = d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
-        msg += `${date}  |  *${formatAmount(r.amount)}*\n`;
+        msg += `${date}  ${rpad(amounts[i], maxAmt)}\n`;
       });
 
-      msg += `─────────────────────\n`;
-      msg += `*Total: ${monthTotal.toFixed(2)}*`;
+      msg += `${'─'.repeat(12 + maxAmt)}\n`;
+      msg += `${'Total:'.padEnd(12)}${rpad(monthTotal.toFixed(2), maxAmt)}\n`;
+      msg += `\`\`\``;
 
       window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
     }
