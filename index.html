@@ -1246,7 +1246,8 @@
     // ── Phone Registration ─────────────────────────────────────────────────────
     // Unique key = phone + PIN stored together. Login uses PIN only.
     function savePhone() {
-      const raw = document.getElementById('phoneInput').value.trim().replace(/\s+/g, '').replace(/^(\+91|91)/, '');
+      const cleaned = document.getElementById('phoneInput').value.trim().replace(/\s+/g, '');
+      const raw = cleaned.replace(/^(\+91|91)(?=[6-9]\d{9}$)/, '');
       if (!/^[6-9]\d{9}$/.test(raw)) {
         document.getElementById('phoneError').textContent = 'Enter a valid 10-digit mobile number.';
         return;
