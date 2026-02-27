@@ -444,7 +444,7 @@
         <button class="btn btn-retake" onclick="showManualEntry()">+ Add Amount</button>
         <button class="btn btn-retake" onclick="showTransactions()">Show all transactions</button>
       </div>
-      <button class="btn" onclick="showAdmin()" style="margin-top:8px;background:#2a2a2a;border:1px solid #444;color:#f59e0b;font-size:12px;font-weight:700;letter-spacing:.5px;">
+      <button class="btn" onclick="promptAdmin()" style="margin-top:8px;background:#2a2a2a;border:1px solid #444;color:#f59e0b;font-size:12px;font-weight:700;letter-spacing:.5px;">
         ⚙ Admin — All Users
       </button>
     </div>
@@ -506,6 +506,21 @@
     </div>
 
   </main>
+
+  <!-- ── Admin Auth Modal ── -->
+  <div id="adminAuthModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:320px;display:flex;flex-direction:column;gap:14px;">
+      <h3 style="font-size:16px;font-weight:800;">Admin Access</h3>
+      <p style="font-size:13px;color:var(--muted);">Enter your User ID to continue</p>
+      <input id="adminAuthInput" type="tel" inputmode="numeric" placeholder="Phone number"
+        style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:16px;color:var(--text);width:100%;outline:none;" />
+      <p id="adminAuthError" style="font-size:12px;color:var(--red);min-height:16px;"></p>
+      <div class="btn-row">
+        <button class="btn btn-retake" onclick="document.getElementById('adminAuthModal').style.display='none'">Cancel</button>
+        <button class="btn btn-primary" onclick="verifyAdmin()">Enter</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Month Picker Modal ── -->
   <div id="monthPickerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;padding:20px;">
@@ -1234,6 +1249,27 @@
       currentUserId = raw;
       localStorage.setItem(USER_ID_KEY, raw);
       document.getElementById('phoneScreen').style.display = 'none';
+    }
+
+    // ── Admin Auth ────────────────────────────────────────────────────────────
+    const ADMIN_ID = '7604031953';
+
+    function promptAdmin() {
+      document.getElementById('adminAuthInput').value = '';
+      document.getElementById('adminAuthError').textContent = '';
+      document.getElementById('adminAuthModal').style.display = 'flex';
+      setTimeout(() => document.getElementById('adminAuthInput').focus(), 200);
+    }
+
+    function verifyAdmin() {
+      const val = document.getElementById('adminAuthInput').value.trim().replace(/\s/g,'');
+      if (val === ADMIN_ID) {
+        document.getElementById('adminAuthModal').style.display = 'none';
+        showAdmin();
+      } else {
+        document.getElementById('adminAuthError').textContent = '⚠ Access denied. Invalid User ID.';
+        document.getElementById('adminAuthInput').value = '';
+      }
     }
 
     // ── Admin ─────────────────────────────────────────────────────────────────
