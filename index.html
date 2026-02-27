@@ -1016,17 +1016,19 @@
       msg += `Transactions : ${g.rows.length}\n`;
       msg += `Total Amount : ${monthTotal.toFixed(2)}\n`;
       msg += `──────────────────────────\n`;
+      const row = (a,b,c) => `| ${pad(a,12)}| ${pad(b,7)}| ${pad(c,10)}|\n`;
+      const sep = `|${'-'.repeat(14)}|${'-'.repeat(9)}|${'-'.repeat(12)}|\n`;
       msg += `\`\`\`\n`;
-      msg += `${pad('Date',12)}${pad('Time',8)}${pad('Amount',10)}\n`;
-      msg += `${'─'.repeat(30)}\n`;
+      msg += row('Date','Time','Amount');
+      msg += sep;
       g.rows.forEach(r => {
         const d    = new Date(r.scanned_at);
         const date = d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
         const time = d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',hour12:false});
-        msg += `${pad(date,12)}${pad(time,8)}${formatAmount(r.amount)}\n`;
+        msg += row(date, time, formatAmount(r.amount));
       });
-      msg += `${'─'.repeat(30)}\n`;
-      msg += `${'TOTAL'.padEnd(20)}${monthTotal.toFixed(2)}\n`;
+      msg += sep;
+      msg += row('TOTAL','',monthTotal.toFixed(2));
       msg += `\`\`\`\n`;
       msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
