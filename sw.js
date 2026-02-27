@@ -1,5 +1,5 @@
-const CACHE = 'billscan-v10';
-const ASSETS = ['/', '/index.html'];
+const CACHE = 'billscan-v11';
+const ASSETS = ['/SCAN_BILL/', '/SCAN_BILL/index.html'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
