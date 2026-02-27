@@ -995,11 +995,11 @@
 
       const grandTotal = rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
       document.getElementById('txSummary').innerHTML = `
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
-          <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Total Transactions</div>
-            <div style="font-size:26px;font-weight:800;margin-top:2px;">${rows.length}</div></div>
-          <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Grand Total</div>
-            <div style="font-size:26px;font-weight:800;margin-top:2px;">${grandTotal.toFixed(2)}</div></div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Total Transactions</div>
+            <div style="font-size:15px;font-weight:700;margin-top:2px;">${rows.length}</div></div>
+          <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Grand Total</div>
+            <div style="font-size:15px;font-weight:700;margin-top:2px;">${grandTotal.toFixed(2)}</div></div>
         </div>`;
 
       const th  = s => `<th style="padding:6px 10px;border:1px solid var(--border);color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;">${s}</th>`;
@@ -1295,13 +1295,13 @@
         const grandTotal = rows.reduce((s,r) => s + (parseFloat(String(r.amount).replace(/[^0-9.]/g,'')) || 0), 0);
         const userCount  = new Set(rows.map(r => r.user_id)).size;
         summary.innerHTML = `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;justify-content:space-between;">
-            <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Users</div>
-              <div style="font-size:24px;font-weight:800;">${userCount}</div></div>
-            <div style="text-align:center;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Total Bills</div>
-              <div style="font-size:24px;font-weight:800;">${rows.length}</div></div>
-            <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;">Grand Total</div>
-              <div style="font-size:24px;font-weight:800;">${grandTotal.toFixed(2)}</div></div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;display:flex;justify-content:space-between;">
+            <div><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Users</div>
+              <div style="font-size:15px;font-weight:700;margin-top:2px;">${userCount}</div></div>
+            <div style="text-align:center;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Total Bills</div>
+              <div style="font-size:15px;font-weight:700;margin-top:2px;">${rows.length}</div></div>
+            <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Grand Total</div>
+              <div style="font-size:15px;font-weight:700;margin-top:2px;">${grandTotal.toFixed(2)}</div></div>
           </div>`;
 
         // Table
